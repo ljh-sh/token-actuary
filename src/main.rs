@@ -1,0 +1,131 @@
+//! Native CLI entry point for token-actuary (`ta`).
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use std::io::{self, Read};
+use token_actuary::{Actuary, AuditOptions};
+
+mod cli;
+use cli::{Cli, Command, OutputFormat};
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let tokenizer_path = cli
+        .cmd
+        .tokenizer_path()
+        .context("missing tokenizer path; pass --tokenizer or set TOKENIZER_JSON")?;
+
+    let actuary = Actuary::from_file(&tokenizer_path)?;
+
+    match cli.cmd {
+        Command::Count {
+            special,
+            json,
+            text,
+            ..
+        } => {
+            let input = read_input(text)?;
+            let count = actuary.count(&input, special)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "tokens": count,
+                        "characters": input.chars().count(),
+                        "density": actuary.density(&input, special)?,
+                    })
+                );
+            } else {
+                println!("{}", count);
+            }
+        }
+        Command::Audit {
+            max_tokens,
+            redact,
+            replace,
+            control,
+            format,
+            text,
+            ..
+        } => {
+            let input = read_input(text)?;
+            let replacements: Vec<&str> = replace.iter().map(|s| s.as_str()).collect();
+            let patterns: Vec<&str> = redact.iter().map(|s| s.as_str()).collect();
+            let actuary = if patterns.is_empty() {
+                actuary
+            } else {
+                actuary.with_redactions(&patterns, &replacements)?
+            };
+            let control_ref: Vec<&str> = control.iter().map(|s| s.as_str()).collect();
+            let actuary = actuary.with_control_token_prefixes(&control_ref);
+
+            let opts = AuditOptions {
+                max_tokens,
+                add_special_tokens: false,
+                skip_decode: false,
+            };
+            let report = actuary.audit(&input, &opts)?;
+
+            match format {
+                OutputFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                OutputFormat::Tsv => {
+                    println!(
+                        "tokens_before\ttokens_after\ttruncated\tredaction_hits\tjailbreak_hits"
+                    );
+                    println!(
+                        "{}\t{}\t{}\t{}\t{}",
+                        report.tokens_before,
+                        report.tokens_after,
+                        report.truncated,
+                        report.redaction_hits,
+                        report.jailbreak_hits
+                    );
+                }
+                OutputFormat::Text => {
+                    println!("tokens_before: {}", report.tokens_before);
+                    println!("tokens_after:  {}", report.tokens_after);
+                    println!("truncated:     {}", report.truncated);
+                    println!("redactions:    {}", report.redaction_hits);
+                    println!("jailbreak:     {}", report.jailbreak_hits);
+                    for w in &report.warnings {
+                        eprintln!("warning: {}", w);
+                    }
+                    println!("---");
+                    println!("{}", report.text);
+                }
+            }
+        }
+        Command::Encode { special, text, .. } => {
+            let input = read_input(text)?;
+            let ids = actuary.encode(&input, special)?;
+            println!("{}", ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+        }
+        Command::Decode { ids, .. } => {
+            let text = actuary.decode(&ids, true)?;
+            println!("{}", text);
+        }
+        Command::Heatmap { special, text, .. } => {
+            let input = read_input(text)?;
+            let heat = token_actuary::heatmap(&actuary, &input, special)?;
+            for t in heat {
+                println!("{}\t{}\t{}", t.start, t.end, t.token);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Read input from argument, stdin, or fail.
+fn read_input(text: Option<String>) -> Result<String> {
+    if let Some(t) = text {
+        return Ok(t);
+    }
+    let mut buf = String::new();
+    io::stdin()
+        .read_to_string(&mut buf)
+        .context("failed to read stdin")?;
+    Ok(buf)
+}

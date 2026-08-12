@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [],
+  "pre_tokenizer": {
+    "type": "Whitespace"
+  },
+  "normalizer": null,
+  "post_processor": null,
+  "decoder": null,
+  "model": {
+    "type": "WordLevel",
+    "vocab": {
+      "[UNK]": 0,
+      "hello": 1,
+      "world": 2,
+      "my": 3,
+      "secret": 4,
+      "password": 5,
+      "is": 6,
+      "here": 7,
+      "one": 8,
+      "two": 9,
+      "three": 10,
+      "four": 11,
+      "five": 12
+    },
+    "unk_token": "[UNK]"
+  }
+}

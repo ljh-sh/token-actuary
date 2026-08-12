@@ -1,0 +1,61 @@
+[package]
+name = "token-actuary"
+version = "0.1.0"
+authors = ["ljh-sh <lijunhao@x-cmd.com>"]
+edition = "2021"
+rust-version = "1.74"
+description = "Privacy-first LLM input firewall & cost actuary — local token counting, redaction, and jailbreak defense."
+readme = "README.md"
+homepage = "https://github.com/ljh-sh/token-actuary"
+documentation = "https://github.com/ljh-sh/token-actuary"
+license = "Apache-2.0"
+repository = "https://github.com/ljh-sh/token-actuary"
+keywords = ["llm", "tokenizer", "privacy", "agent", "wasm"]
+categories = ["text-processing", "command-line-utilities", "wasm"]
+exclude = [
+    ".release-artifacts/",
+    ".github/",
+    ".x-cmd/",
+    "target/",
+    "*.swp",
+    "*.swo",
+    "*~",
+    ".DS_Store",
+]
+
+[lib]
+name = "token_actuary"
+path = "src/lib.rs"
+# cdylib for wasm32-unknown-unknown, rlib for native CLI and Rust consumers.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "ta"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Hugging Face tokenizers: loads tokenizer.json for open-source models.
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+# Fast multi-pattern matching for local redaction and phrase scanning.
+aho-corasick = "1"
+# CLI arg parser. Kept small via default-features=false.
+clap = { version = "4", features = ["derive", "std", "help"], default-features = false }
+# WebAssembly bindings (only pulled in with --features wasm).
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen"]
+
+# Release: small static-ish binary.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.test]
+panic = "unwind"
