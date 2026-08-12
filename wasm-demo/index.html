@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>token-actuary sandbox</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --fg: #c9d1d9;
+      --accent: #238636;
+      --warn: #d29922;
+      --danger: #da3633;
+      --card: #161b22;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+    h1 { margin-top: 0; font-size: 1.75rem; }
+    h1 span { color: var(--accent); }
+    .subtitle { color: #8b949e; margin-bottom: 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    label { display: block; margin-bottom: 0.4rem; font-weight: 600; }
+    textarea, input[type="text"] {
+      width: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .row > label { flex: 1 1 200px; }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.7rem 1.2rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem;
+    }
+    .stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.8rem;
+      text-align: center;
+    }
+    .stat .value { font-size: 1.5rem; font-weight: 700; }
+    .stat .label { font-size: 0.8rem; color: #8b949e; }
+    .ok { color: var(--accent); }
+    .warn { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .output {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.8rem;
+      min-height: 3rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+    .badge.safe { background: rgba(35,134,54,0.2); color: var(--accent); }
+    .badge.risk { background: rgba(218,54,51,0.2); color: var(--danger); }
+    #status { margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>token-<span>actuary</span> sandbox</h1>
+    <p class="subtitle">Privacy-first LLM input firewall & cost actuary. Runs entirely in your browser — no prompt text leaves this page.</p>
+
+    <div id="status" class="card">Loading tokenizer…</div>
+
+    <div class="card">
+      <label for="input">Prompt</label>
+      <textarea id="input" placeholder="Paste your prompt here. Try including a fake API key like sk-abc123 or a phone number."></textarea>
+
+      <div class="row" style="margin-top: 1rem;">
+        <label>Max tokens
+          <input type="text" id="max-tokens" value="512" placeholder="optional">
+        </label>
+        <label>Redact patterns (comma-separated)
+          <input type="text" id="redact" value="sk-,password,phone">
+        </label>
+      </div>
+
+      <div style="margin-top: 1rem;">
+        <button id="audit" disabled>Audit</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Results <span id="risk-badge" class="badge safe">SAFE</span></h3>
+      <div class="stats">
+        <div class="stat"><div class="value" id="tokens-before">-</div><div class="label">tokens before</div></div>
+        <div class="stat"><div class="value" id="tokens-after">-</div><div class="label">tokens after</div></div>
+        <div class="stat"><div class="value" id="redactions">-</div><div class="label">redactions</div></div>
+        <div class="stat"><div class="value" id="jailbreak">-</div><div class="label">jailbreak hits</div></div>
+      </div>
+      <label style="margin-top: 1rem;">Sanitized text</label>
+      <div id="sanitized" class="output"></div>
+      <label style="margin-top: 1rem;">Warnings</label>
+      <div id="warnings" class="output"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import init, { WasmActuary } from '../pkg/token_actuary.js';
+
+    const status = document.getElementById('status');
+    const btn = document.getElementById('audit');
+    const input = document.getElementById('input');
+    const maxTokens = document.getElementById('max-tokens');
+    const redact = document.getElementById('redact');
+
+    async function loadTokenizer() {
+      const res = await fetch('./minimal-tokenizer.json.gz');
+      if (!res.ok) throw new Error(`failed to fetch tokenizer: ${res.status}`);
+      const stream = res.body.pipeThrough(new DecompressionStream('gzip'));
+      const buf = await new Response(stream).arrayBuffer();
+      return new Uint8Array(buf);
+    }
+
+    let actuary;
+    try {
+      await init();
+      const tokenizerBytes = await loadTokenizer();
+      actuary = new WasmActuary(tokenizerBytes);
+      status.textContent = 'Tokenizer loaded. Ready to audit.';
+      status.classList.add('ok');
+      btn.disabled = false;
+    } catch (e) {
+      status.textContent = `Error: ${e.message}`;
+      status.classList.add('danger');
+      console.error(e);
+    }
+
+    btn.addEventListener('click', () => {
+      if (!actuary) return;
+      const text = input.value;
+      const max = parseInt(maxTokens.value, 10);
+      const patterns = redact.value.split(',').map(s => s.trim()).filter(Boolean);
+      const replacements = patterns.map((_, i) => `[REDACTED_${i + 1}]`);
+
+      // WASM audit currently uses a simplified redaction path; for the demo we
+      // redact in JS first, then ask the core to count/audit/truncate.
+      let sanitized = text;
+      let redactionHits = 0;
+      patterns.forEach((pat, i) => {
+        const re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        sanitized = sanitized.replace(re, () => { redactionHits++; return replacements[i]; });
+      });
+
+      const reportJson = actuary.audit(sanitized, Number.isFinite(max) && max > 0 ? max : undefined);
+      const report = JSON.parse(reportJson);
+
+      document.getElementById('tokens-before').textContent = report.tokens_before;
+      document.getElementById('tokens-after').textContent = report.tokens_after;
+      document.getElementById('redactions').textContent = redactionHits;
+      document.getElementById('jailbreak').textContent = report.jailbreak_hits;
+      document.getElementById('sanitized').textContent = report.text || sanitized;
+      document.getElementById('warnings').textContent = (report.warnings || []).join('\n') || 'none';
+
+      const badge = document.getElementById('risk-badge');
+      if (report.truncated || report.jailbreak_hits > 0 || redactionHits > 0) {
+        badge.textContent = 'RISK DETECTED';
+        badge.className = 'badge risk';
+      } else {
+        badge.textContent = 'SAFE';
+        badge.className = 'badge safe';
+      }
+    });
+  </script>
+</body>
+</html>
