@@ -22,12 +22,21 @@ Existing cloud-based token gateways force you to ship prompts to a third party. 
 
 ### Prebuilt binaries
 
-Download the latest release for macOS:
+Download the latest release for your platform:
 
 ```bash
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-darwin-universal.tar.gz | tar xz
-# ./ta is now available
+# macOS (Apple Silicon + Intel universal)
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-darwin-universal.tar.xz | tar xJ
+
+# Linux (x86_64)
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-linux-x64.tar.xz | tar xJ
+
+# Windows (x86_64)
+curl -L -o ta-windows-x64.zip https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-x64.zip
+# unzip, then run ta.exe
 ```
+
+All archives are compressed with `xz` (Windows uses `zip` for native tooling compatibility).
 
 ### Cargo
 

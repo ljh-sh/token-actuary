@@ -26,6 +26,13 @@ On an Apple Silicon Mac, processing the full output of `x gtb show 1257` (~322k 
 - Default build (with embedded OpenAI tokenizers): ~9.6 MB uncompressed, ~2.6 MB with `xz -9`.
 - HF-only build (`--no-default-features`): ~2.7 MB uncompressed, ~830 KB with `xz -9`.
 
+### Release artifacts
+
+- macOS: `ta-darwin-arm64.tar.xz`, `ta-darwin-x64.tar.xz`, `ta-darwin-universal.tar.xz`
+- Linux (musl): `ta-linux-arm64.tar.xz`, `ta-linux-x64.tar.xz`
+- Windows: `ta-windows-x64.zip`
+- `checksums.txt` (SHA-256)
+
 ### License
 
 - `token-actuary`: Apache-2.0
