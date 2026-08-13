@@ -161,12 +161,30 @@ OpenAI models use the exact same BPE tables as `tiktoken` and produce identical 
 
 GGUF support is currently not bundled; we are evaluating whether the existing `tokenizers` BPE/WordPiece/Unigram implementation can cover GGUF vocabulary loading without adding a dedicated dependency.
 
+## Performance
+
+Measured on an Apple Silicon Mac using the full output of `x gtb show 1257` (1,337,848 bytes, ~322k tokens with `gpt-4o`).
+
+| Backend | Cold (first encode) | Hot avg | Throughput |
+|---|---|---|---|
+| `ta --model gpt-4o` (tiktoken-rs) | ~35 ms | ~31 ms | **~10.5 M tokens/s** |
+| Python `tiktoken` | ~99 ms | ~80 ms | ~4.0 M tokens/s |
+| `ta --tokenizer gpt_4o.tokenizer.json` (HF) | ~190 ms | ~177 ms | ~1.8 M tokens/s |
+
+The HF backend is intentionally slower because it deserializes a 6.7 MB `tokenizer.json` and goes through the general-purpose HF `tokenizers` pipeline. For OpenAI models the `--model` path is therefore both faster and requires no external file.
+
+The two backends produce identical token ids for the same OpenAI encoding.
+
 ## Binary size
+
+The default native binary embeds OpenAI BPE tables so it works offline. The extra size is data, not code: `gpt_4o.tokenizer.json` alone is ~6.7 MB, and `tiktoken-rs` packs several OpenAI encodings.
 
 | Build | Uncompressed | `gzip` | `xz -9` |
 |---|---|---|---|
 | Default (with OpenAI tokenizers) | ~9.6 MB | ~4.4 MB | ~2.6 MB |
 | `--no-default-features` (HF only) | ~2.7 MB | ~1.2 MB | ~830 KB |
+
+Use `--no-default-features` when you only need open-source HF tokenizers and want the smallest binary (e.g. constrained containers or custom distributions).
 
 ## Security
 
