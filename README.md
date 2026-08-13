@@ -20,6 +20,15 @@ Existing cloud-based token gateways force you to ship prompts to a third party. 
 
 ## Install
 
+### Prebuilt binaries
+
+Download the latest release for macOS:
+
+```bash
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-darwin-universal.tar.gz | tar xz
+# ./ta is now available
+```
+
 ### Cargo
 
 ```bash
