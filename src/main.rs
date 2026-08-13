@@ -6,16 +6,21 @@ use std::io::{self, Read};
 use token_actuary::{Actuary, AuditOptions};
 
 mod cli;
-use cli::{Cli, Command, OutputFormat};
+use cli::{Cli, Command, OutputFormat, TokenizerSource};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let tokenizer_path = cli
-        .cmd
-        .tokenizer_path()
-        .context("missing tokenizer path; pass --tokenizer or set TOKENIZER_JSON")?;
+    let source = cli.cmd.tokenizer_source();
 
-    let actuary = Actuary::from_file(&tokenizer_path)?;
+    let actuary = match source {
+        TokenizerSource::File(path) => Actuary::from_file(&path)?,
+        #[cfg(feature = "tiktoken")]
+        TokenizerSource::Model(model) => Actuary::from_model(&model)?,
+        #[cfg(not(feature = "tiktoken"))]
+        TokenizerSource::Model(_) => {
+            anyhow::bail!("--model requires the `tiktoken` feature (enabled by default on native builds)")
+        }
+    };
 
     match cli.cmd {
         Command::Count {

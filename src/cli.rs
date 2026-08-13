@@ -3,6 +3,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+/// Default OpenAI model used when neither `--tokenizer` nor `--model` is given.
+pub const DEFAULT_MODEL: &str = "gpt-4o";
+
 #[derive(Parser, Debug)]
 #[command(
     name = "ta",
@@ -19,9 +22,12 @@ pub struct Cli {
 pub enum Command {
     /// Count tokens for the given input.
     Count {
-        /// Path to tokenizer.json. Defaults to TOKENIZER_JSON env var.
+        /// Path to tokenizer.json (Hugging Face format). Overrides --model.
         #[arg(short, long)]
         tokenizer: Option<PathBuf>,
+        /// OpenAI model name to use the embedded tiktoken backend.
+        #[arg(short, long)]
+        model: Option<String>,
         /// Add special tokens during encoding.
         #[arg(long)]
         special: bool,
@@ -33,9 +39,12 @@ pub enum Command {
     },
     /// Audit input: redact, count, truncate, detect jailbreak tokens.
     Audit {
-        /// Path to tokenizer.json.
+        /// Path to tokenizer.json. Overrides --model.
         #[arg(short, long)]
         tokenizer: Option<PathBuf>,
+        /// OpenAI model name to use the embedded tiktoken backend.
+        #[arg(short, long)]
+        model: Option<String>,
         /// Maximum tokens to keep.
         #[arg(short, long)]
         max_tokens: Option<usize>,
@@ -56,9 +65,12 @@ pub enum Command {
     },
     /// Encode text into token ids.
     Encode {
-        /// Path to tokenizer.json.
+        /// Path to tokenizer.json. Overrides --model.
         #[arg(short, long)]
         tokenizer: Option<PathBuf>,
+        /// OpenAI model name to use the embedded tiktoken backend.
+        #[arg(short, long)]
+        model: Option<String>,
         /// Add special tokens.
         #[arg(long)]
         special: bool,
@@ -67,18 +79,24 @@ pub enum Command {
     },
     /// Decode token ids back to text.
     Decode {
-        /// Path to tokenizer.json.
+        /// Path to tokenizer.json. Overrides --model.
         #[arg(short, long)]
         tokenizer: Option<PathBuf>,
+        /// OpenAI model name to use the embedded tiktoken backend.
+        #[arg(short, long)]
+        model: Option<String>,
         /// Comma-separated token ids.
         #[arg(value_delimiter = ',')]
         ids: Vec<u32>,
     },
     /// Print a per-token heatmap for terminal debugging.
     Heatmap {
-        /// Path to tokenizer.json.
+        /// Path to tokenizer.json. Overrides --model.
         #[arg(short, long)]
         tokenizer: Option<PathBuf>,
+        /// OpenAI model name to use the embedded tiktoken backend.
+        #[arg(short, long)]
+        model: Option<String>,
         /// Add special tokens.
         #[arg(long)]
         special: bool,
@@ -94,16 +112,53 @@ pub enum OutputFormat {
     Tsv,
 }
 
+/// Source of the tokenizer selected by the user.
+pub enum TokenizerSource {
+    /// Hugging Face `tokenizer.json` path.
+    File(PathBuf),
+    /// OpenAI model name resolved by tiktoken-rs.
+    #[allow(dead_code)]
+    Model(String),
+}
+
 impl Command {
-    /// Resolve tokenizer path from flag or environment.
-    pub fn tokenizer_path(&self) -> Option<PathBuf> {
-        let opt = match self {
-            Command::Count { tokenizer, .. } => tokenizer.clone(),
-            Command::Audit { tokenizer, .. } => tokenizer.clone(),
-            Command::Encode { tokenizer, .. } => tokenizer.clone(),
-            Command::Decode { tokenizer, .. } => tokenizer.clone(),
-            Command::Heatmap { tokenizer, .. } => tokenizer.clone(),
+    /// Resolve tokenizer source from flags/environment.
+    ///
+    /// Precedence:
+    /// 1. `--tokenizer` flag
+    /// 2. `TOKENIZER_JSON` environment variable
+    /// 3. `--model` flag
+    /// 4. `TOKENIZER_MODEL` environment variable
+    /// 5. Default model (`gpt-4o`) when the `tiktoken` feature is enabled
+    pub fn tokenizer_source(&self) -> TokenizerSource {
+        let (tokenizer, model) = match self {
+            Command::Count {
+                tokenizer, model, ..
+            } => (tokenizer.clone(), model.clone()),
+            Command::Audit {
+                tokenizer, model, ..
+            } => (tokenizer.clone(), model.clone()),
+            Command::Encode {
+                tokenizer, model, ..
+            } => (tokenizer.clone(), model.clone()),
+            Command::Decode {
+                tokenizer, model, ..
+            } => (tokenizer.clone(), model.clone()),
+            Command::Heatmap {
+                tokenizer, model, ..
+            } => (tokenizer.clone(), model.clone()),
         };
-        opt.or_else(|| std::env::var("TOKENIZER_JSON").ok().map(PathBuf::from))
+
+        if let Some(path) = tokenizer {
+            return TokenizerSource::File(path);
+        }
+        if let Ok(path) = std::env::var("TOKENIZER_JSON") {
+            return TokenizerSource::File(PathBuf::from(path));
+        }
+
+        let model = model
+            .or_else(|| std::env::var("TOKENIZER_MODEL").ok())
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        TokenizerSource::Model(model)
     }
 }

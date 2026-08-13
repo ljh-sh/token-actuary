@@ -46,10 +46,15 @@ aho-corasick = "1"
 # CLI arg parser. Kept small via default-features=false.
 clap = { version = "4", features = ["derive", "std", "help"], default-features = false }
 # WebAssembly bindings (only pulled in with --features wasm).
+# OpenAI tiktoken backend (default). Pulls in regex + embedded BPE tables.
+# Disable for WASM builds: `--no-default-features --features wasm`.
+tiktoken-rs = { version = "0.12", optional = true }
+# WebAssembly bindings (only pulled in with --features wasm).
 wasm-bindgen = { version = "=0.2.100", optional = true }
 
 [features]
-default = []
+default = ["tiktoken"]
+tiktoken = ["dep:tiktoken-rs"]
 wasm = ["dep:wasm-bindgen"]
 
 # Release: small static-ish binary.

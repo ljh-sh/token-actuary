@@ -5,16 +5,18 @@
 > Privacy-First LLM Input Firewall & Cost Actuary.  
 > Local token counting, redaction, truncation, and jailbreak-token detection — no network, no data leakage.
 
-`token-actuary` (binary: `ta`) is a tiny, self-contained Rust tool that audits LLM prompts before they leave the machine. It loads a Hugging Face `tokenizer.json`, counts tokens, redacts sensitive patterns, safely truncates at token boundaries, and flags control tokens that may indicate prompt injection or jailbreak attempts.
+`token-actuary` (binary: `ta`) is a tiny, self-contained Rust tool that audits LLM prompts before they leave the machine. It counts tokens, redacts sensitive patterns, safely truncates at token boundaries, and flags control tokens that may indicate prompt injection or jailbreak attempts.
+
+The native binary ships with an embedded OpenAI `tiktoken` backend, so it works out of the box for GPT-4o / GPT-4 / GPT-3.5-style models without downloading tokenizer files. For open-source models (Qwen2.5, Llama3, DeepSeek, etc.), pass a Hugging Face `tokenizer.json`.
 
 ## Why
 
 Existing cloud-based token gateways force you to ship prompts to a third party. `token-actuary` keeps everything local:
 
-- **Zero network**: tokenizer is loaded from a local file or fetched once by your frontend; no prompt text ever leaves the process.
+- **Zero network**: native builds embed OpenAI tokenizers; no prompt text ever leaves the process.
 - **Token-level safety**: truncation happens on `Vec<u32>`, never by slicing raw strings, so multi-byte characters and code blocks stay intact.
 - **Agent-friendly**: plain stdout, structured JSON/TSV options, no TUI, no progress bars.
-- **WASM-ready**: the same core compiles to WebAssembly for browser-side audit sandboxes.
+- **WASM-ready**: the same core compiles to WebAssembly for browser-side audit sandboxes (uses HF `tokenizer.json` bytes).
 
 ## Install
 
@@ -32,13 +34,42 @@ cd token-actuary
 cargo build --release   # binary at target/release/ta
 ```
 
-## Usage
-
-All commands need a `tokenizer.json`. Either pass `--tokenizer` or set `TOKENIZER_JSON`:
+To build a smaller binary without the embedded OpenAI tokenizers:
 
 ```bash
-export TOKENIZER_JSON=/path/to/tokenizer.json
+cargo build --release --no-default-features
 ```
+
+## Usage
+
+Native builds default to the embedded `gpt-4o` tokenizer, so the simplest usage needs no extra files:
+
+```bash
+echo "hello world" | ta count
+# 2
+```
+
+You can also select a specific OpenAI model:
+
+```bash
+ta count --model gpt-4
+```
+
+Or load a Hugging Face `tokenizer.json`:
+
+```bash
+ta count --tokenizer /path/to/tokenizer.json
+export TOKENIZER_JSON=/path/to/tokenizer.json
+ta count
+```
+
+Precedence:
+
+1. `--tokenizer` flag
+2. `TOKENIZER_JSON` environment variable
+3. `--model` flag
+4. `TOKENIZER_MODEL` environment variable
+5. default model `gpt-4o`
 
 ### Count tokens
 
@@ -56,13 +87,14 @@ echo "my secret password is here" | ta audit --redact secret,password --replace 
 Output:
 
 ```text
-tokens_before: 6
-tokens_after:  6
-truncated:     false
+tokens_before: 13
+tokens_after:  10
+truncated:     true
 redactions:    2
 jailbreak:     0
 ---
-my [REDACTED] [SECRET] is here
+my [REDACTED] [SECRET]
+warning: input truncated from 13 to 10 tokens
 ```
 
 JSON mode for agents:
@@ -75,9 +107,9 @@ cat prompt.txt | ta audit --max-tokens 2048 --format json
 
 ```bash
 echo "hello world" | ta encode
-# 15496,995
+# 24912,2375
 
-ta decode 15496,995
+ta decode 24912,2375
 # hello world
 ```
 
@@ -92,7 +124,8 @@ echo "hello world" | ta heatmap
 ```rust
 use token_actuary::{Actuary, AuditOptions};
 
-let actuary = Actuary::from_file("tokenizer.json")?
+// Embedded OpenAI tokenizer — no external file needed.
+let actuary = Actuary::from_model("gpt-4o")?
     .with_redactions(&["secret", "password"], &["[REDACTED]", "[SECRET_ID_1]"])?
     .with_control_token_prefixes(&["<|im_start|>", "<|endoftext|>"]);
 
@@ -100,21 +133,40 @@ let report = actuary.audit("my secret is safe", &AuditOptions::default())?;
 println!("{} tokens", report.tokens_after);
 ```
 
+For open-source models, use `Actuary::from_file("tokenizer.json")` or `Actuary::from_bytes(&bytes)`.
+
 ## WebAssembly
 
-Build with `wasm-pack`:
+Build with `wasm-pack`. The `wasm` feature disables the embedded OpenAI backend because `tiktoken-rs` currently relies on the `regex` crate, which does not target `wasm32-unknown-unknown`.
 
 ```bash
-wasm-pack build --target web --features wasm
+wasm-pack build --target web --no-default-features --features wasm
 ```
 
-The `WasmActuary` class exposes `count`, `encode`, `decode`, and `audit` to JavaScript.
+The `WasmActuary` class exposes `count`, `encode`, `decode`, and `audit` to JavaScript. It is constructed from `tokenizer.json` bytes:
+
+```js
+const actuary = new WasmActuary(tokenizerJsonBytes);
+const report = JSON.parse(actuary.audit(text, 512));
+```
 
 ## Model support
 
-`token-actuary` uses the Hugging Face `tokenizers` Rust library. It supports any model shipped with a `tokenizer.json` (Qwen2.5, Llama3, DeepSeek, etc.). Large tokenizer files can be Brotli/Gzip compressed for web delivery and decompressed in the browser before instantiation.
+| Backend | Source | Models |
+|---|---|---|
+| `tiktoken-rs` | Embedded BPE tables | OpenAI: `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`, `o1`, `o3`, embeddings, etc. |
+| Hugging Face `tokenizers` | External `tokenizer.json` | Qwen2.5, Llama3, DeepSeek, Mistral, Claude-converted, etc. |
+
+OpenAI models use the exact same BPE tables as `tiktoken` and produce identical token ids.
 
 GGUF support is currently not bundled; we are evaluating whether the existing `tokenizers` BPE/WordPiece/Unigram implementation can cover GGUF vocabulary loading without adding a dedicated dependency.
+
+## Binary size
+
+| Build | Uncompressed | `gzip` | `xz -9` |
+|---|---|---|---|
+| Default (with OpenAI tokenizers) | ~9.6 MB | ~4.4 MB | ~2.6 MB |
+| `--no-default-features` (HF only) | ~2.7 MB | ~1.2 MB | ~830 KB |
 
 ## Security
 
@@ -123,3 +175,5 @@ See [SECURITY.md](SECURITY.md). For vulnerabilities, email [lijunhao@x-cmd.com](
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
+
+`token-actuary` optionally includes `tiktoken-rs`, which is licensed under the MIT license. Its license text is included in the crate's source distribution.

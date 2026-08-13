@@ -8,11 +8,23 @@ use aho_corasick::AhoCorasick;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use tokenizers::Tokenizer;
+
+/// Internal tokenizer backend.
+///
+/// * `Hf` uses Hugging Face `tokenizers` and a `tokenizer.json` file.
+/// * `Tiktoken` uses `tiktoken-rs` and embedded OpenAI BPE tables.
+enum Backend {
+    Hf(tokenizers::Tokenizer),
+    #[cfg(feature = "tiktoken")]
+    Tiktoken {
+        bpe: &'static tiktoken_rs::CoreBPE,
+        special_ids: HashSet<u32>,
+    },
+}
 
 /// A loaded tokenizer plus local audit configuration.
 pub struct Actuary {
-    tokenizer: Tokenizer,
+    backend: Backend,
     redactor: Option<AhoCorasick>,
     redaction_replacements: Vec<String>,
     jailbreak_tokens: HashSet<u32>,
@@ -56,9 +68,10 @@ pub struct AuditReport {
 impl Actuary {
     /// Load a tokenizer from a `tokenizer.json` file.
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let tokenizer = Tokenizer::from_file(path).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let tokenizer =
+            tokenizers::Tokenizer::from_file(path).map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(Self {
-            tokenizer,
+            backend: Backend::Hf(tokenizer),
             redactor: None,
             redaction_replacements: Vec::new(),
             jailbreak_tokens: HashSet::new(),
@@ -68,9 +81,29 @@ impl Actuary {
 
     /// Load a tokenizer from in-memory `tokenizer.json` bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let tokenizer = Tokenizer::from_bytes(bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let tokenizer =
+            tokenizers::Tokenizer::from_bytes(bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(Self {
-            tokenizer,
+            backend: Backend::Hf(tokenizer),
+            redactor: None,
+            redaction_replacements: Vec::new(),
+            jailbreak_tokens: HashSet::new(),
+            control_token_prefixes: Vec::new(),
+        })
+    }
+
+    /// Load an OpenAI tokenizer by model name (e.g. `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`).
+    ///
+    /// Requires the `tiktoken` feature (enabled by default). This path does not
+    /// need an external `tokenizer.json` file; the BPE tables are embedded in
+    /// the binary.
+    #[cfg(feature = "tiktoken")]
+    pub fn from_model(model: &str) -> Result<Self> {
+        let bpe = tiktoken_rs::bpe_for_model(model)
+            .map_err(|e| anyhow::anyhow!("unknown tiktoken model '{}': {}", model, e))?;
+        let special_ids = tiktoken_special_ids(bpe, model);
+        Ok(Self {
+            backend: Backend::Tiktoken { bpe, special_ids },
             redactor: None,
             redaction_replacements: Vec::new(),
             jailbreak_tokens: HashSet::new(),
@@ -104,18 +137,43 @@ impl Actuary {
 
     /// Encode text into token ids.
     pub fn encode(&self, text: &str, add_special_tokens: bool) -> Result<Vec<u32>> {
-        let encoding = self
-            .tokenizer
-            .encode(text, add_special_tokens)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(encoding.get_ids().to_vec())
+        match &self.backend {
+            Backend::Hf(tokenizer) => {
+                let encoding = tokenizer
+                    .encode(text, add_special_tokens)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok(encoding.get_ids().to_vec())
+            }
+            #[cfg(feature = "tiktoken")]
+            Backend::Tiktoken { bpe, .. } => {
+                let ids = if add_special_tokens {
+                    bpe.encode_with_special_tokens(text)
+                } else {
+                    bpe.encode_ordinary(text)
+                };
+                Ok(ids.into_iter().map(|id| id as u32).collect())
+            }
+        }
     }
 
     /// Decode token ids back to text.
     pub fn decode(&self, ids: &[u32], skip_special_tokens: bool) -> Result<String> {
-        self.tokenizer
-            .decode(ids, skip_special_tokens)
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        match &self.backend {
+            Backend::Hf(tokenizer) => tokenizer
+                .decode(ids, skip_special_tokens)
+                .map_err(|e| anyhow::anyhow!("{e}")),
+            #[cfg(feature = "tiktoken")]
+            Backend::Tiktoken { bpe, special_ids } => {
+                let filtered: Vec<u32> = if skip_special_tokens {
+                    ids.iter().copied().filter(|id| !special_ids.contains(id)).collect()
+                } else {
+                    ids.to_vec()
+                };
+                let ranks: Vec<tiktoken_rs::Rank> = filtered;
+                bpe.decode(&ranks)
+                    .map_err(|e| anyhow::anyhow!("decode failed: {e}"))
+            }
+        }
     }
 
     /// Count tokens for a given text.
@@ -248,24 +306,108 @@ pub struct HeatToken {
 
 /// Produce a simple per-token heatmap for terminal display.
 pub fn heatmap(actuary: &Actuary, text: &str, add_special_tokens: bool) -> Result<Vec<HeatToken>> {
-    let encoding = actuary
-        .tokenizer
-        .encode(text, add_special_tokens)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let tokens = encoding.get_tokens();
-    let offsets = encoding.get_offsets();
-    let mut out = Vec::with_capacity(tokens.len());
-    for (i, (token, (start, end))) in tokens.iter().zip(offsets.iter()).enumerate() {
-        // Simple heat heuristic: longer tokens and later tokens get warmer.
-        let heat = (token.chars().count() as u32).saturating_add((i as u32).saturating_mul(2) / 10);
-        out.push(HeatToken {
-            token: token.to_string(),
-            start: *start,
-            end: *end,
-            heat,
-        });
+    match &actuary.backend {
+        Backend::Hf(tokenizer) => {
+            let encoding = tokenizer
+                .encode(text, add_special_tokens)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let tokens = encoding.get_tokens();
+            let offsets = encoding.get_offsets();
+            let mut out = Vec::with_capacity(tokens.len());
+            for (i, (token, (start, end))) in tokens.iter().zip(offsets.iter()).enumerate() {
+                // Simple heat heuristic: longer tokens and later tokens get warmer.
+                let heat = (token.chars().count() as u32)
+                    .saturating_add((i as u32).saturating_mul(2) / 10);
+                out.push(HeatToken {
+                    token: token.to_string(),
+                    start: *start,
+                    end: *end,
+                    heat,
+                });
+            }
+            Ok(out)
+        }
+        #[cfg(feature = "tiktoken")]
+        Backend::Tiktoken { bpe, .. } => {
+            let ids = actuary.encode(text, add_special_tokens)?;
+            let mut out = Vec::with_capacity(ids.len());
+            let mut start = 0;
+            for (i, id) in ids.iter().enumerate() {
+                let token = bpe
+                    .decode(&[*id])
+                    .map_err(|e| anyhow::anyhow!("decode failed: {e}"))?;
+                let end = start + token.len();
+                let heat = (token.chars().count() as u32)
+                    .saturating_add((i as u32).saturating_mul(2) / 10);
+                out.push(HeatToken {
+                    token,
+                    start,
+                    end,
+                    heat,
+                });
+                start = end;
+            }
+            Ok(out)
+        }
     }
-    Ok(out)
+}
+
+#[cfg(feature = "tiktoken")]
+fn tiktoken_special_ids(bpe: &tiktoken_rs::CoreBPE, model: &str) -> HashSet<u32> {
+    use tiktoken_rs::tokenizer::Tokenizer;
+    use tiktoken_rs::{ENDOFTEXT, ENDOFPROMPT, FIM_MIDDLE, FIM_PREFIX, FIM_SUFFIX};
+
+    let tokenizer = tiktoken_rs::tokenizer::get_tokenizer(model).unwrap_or(Tokenizer::O200kBase);
+
+    let strings: Vec<String> = match tokenizer {
+        Tokenizer::O200kHarmony => {
+            let mut v = vec![
+                "<|startoftext|>".to_string(),
+                ENDOFTEXT.to_string(),
+                "<|reserved_200000|>".to_string(),
+                "<|reserved_200001|>".to_string(),
+                "<|return|>".to_string(),
+                "<|constrain|>".to_string(),
+                "<|reserved_200004|>".to_string(),
+                "<|channel|>".to_string(),
+                "<|start|>".to_string(),
+                "<|end|>".to_string(),
+                "<|message|>".to_string(),
+                "<|reserved_200009|>".to_string(),
+                "<|reserved_200010|>".to_string(),
+                "<|reserved_200011|>".to_string(),
+                "<|call|>".to_string(),
+            ];
+            for i in 200013..=201087 {
+                v.push(format!("<|reserved_{}|>", i));
+            }
+            v
+        }
+        Tokenizer::Cl100kBase => vec![
+            ENDOFTEXT.to_string(),
+            FIM_PREFIX.to_string(),
+            FIM_MIDDLE.to_string(),
+            FIM_SUFFIX.to_string(),
+            ENDOFPROMPT.to_string(),
+        ],
+        Tokenizer::O200kBase => {
+            vec![ENDOFTEXT.to_string(), ENDOFPROMPT.to_string()]
+        }
+        Tokenizer::P50kBase => vec![ENDOFTEXT.to_string()],
+        Tokenizer::P50kEdit => vec![
+            ENDOFTEXT.to_string(),
+            FIM_PREFIX.to_string(),
+            FIM_MIDDLE.to_string(),
+            FIM_SUFFIX.to_string(),
+        ],
+        Tokenizer::R50kBase | Tokenizer::Gpt2 => vec![ENDOFTEXT.to_string()],
+    };
+
+    strings
+        .into_iter()
+        .flat_map(|s| bpe.encode_with_special_tokens(s.as_str()))
+        .map(|id| id as u32)
+        .collect()
 }
 
 #[cfg(feature = "wasm")]
