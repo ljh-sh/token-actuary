@@ -6,12 +6,78 @@ use std::io::{self, Read};
 use token_actuary::{Actuary, AuditOptions};
 
 mod cli;
+#[cfg(feature = "download")]
+mod compare;
+#[cfg(feature = "download")]
+mod download;
+
 use cli::{Cli, Command, OutputFormat, TokenizerSource};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let source = cli.cmd.tokenizer_source();
 
+    #[cfg(feature = "download")]
+    match cli.cmd {
+        Command::Download {
+            recommend,
+            ids,
+            force,
+        } => {
+            println!("downloading to {}", download::data_dir().display());
+            let results = if ids.is_empty() && recommend {
+                download::download_recommended(force)?
+            } else if ids.is_empty() {
+                anyhow::bail!("no tokenizer IDs specified; use --recommend or pass IDs");
+            } else {
+                download::download_ids(&ids, force)?
+            };
+            for r in results {
+                println!("{}\t{}\t{}\t{}", r.id, r.method, r.bytes, r.path.display());
+            }
+            return Ok(());
+        }
+
+        Command::Compare {
+            recommend,
+            stdin,
+            model,
+            tokenizer,
+            format,
+            text,
+            files,
+        } => {
+            let tokenizers = if recommend && model.is_empty() && tokenizer.is_empty() {
+                compare::recommended_tokenizers()
+            } else {
+                let mut t = compare::tokenizers_from_flags(&model, &tokenizer);
+                if recommend {
+                    t.extend(compare::recommended_tokenizers());
+                }
+                t
+            };
+
+            if tokenizers.is_empty() {
+                anyhow::bail!("no tokenizers to compare; use --recommend or pass --model/--tokenizer");
+            }
+
+            let inputs = compare::collect_inputs(stdin, &files, text)?;
+            let rows = compare::compare(&tokenizers, &inputs)?;
+
+            match format {
+                OutputFormat::Tsv | OutputFormat::Json => {
+                    print!("{}", compare::render_tsv(&rows));
+                }
+                OutputFormat::Text => {
+                    print!("{}", compare::render_table(&rows));
+                }
+            }
+            return Ok(());
+        }
+
+        _ => {}
+    }
+
+    let source = cli.cmd.tokenizer_source();
     let actuary = match source {
         TokenizerSource::File(path) => Actuary::from_file(&path)?,
         #[cfg(feature = "tiktoken")]
@@ -117,6 +183,10 @@ fn main() -> Result<()> {
             for t in heat {
                 println!("{}\t{}\t{}", t.start, t.end, t.token);
             }
+        }
+        #[cfg(feature = "download")]
+        Command::Download { .. } | Command::Compare { .. } => {
+            unreachable!("handled above")
         }
     }
 

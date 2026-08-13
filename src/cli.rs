@@ -103,6 +103,43 @@ pub enum Command {
         /// Input text. If omitted, read from stdin.
         text: Option<String>,
     },
+    /// Download tokenizer.json files from ljh-sh/tokenizer-json.
+    #[cfg(feature = "download")]
+    Download {
+        /// Download the recommended set of open-source tokenizers.
+        #[arg(long, default_value_t = true)]
+        recommend: bool,
+        /// Specific tokenizer IDs to download (e.g. qwen2_5, llama3).
+        #[arg(value_name = "ID")]
+        ids: Vec<String>,
+        /// Force re-download even if the file already exists.
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Compare token counts across multiple tokenizers.
+    #[cfg(feature = "download")]
+    Compare {
+        /// Use the recommended tokenizer set (default).
+        #[arg(long, default_value_t = true)]
+        recommend: bool,
+        /// Read input from stdin instead of files.
+        #[arg(long)]
+        stdin: bool,
+        /// Additional OpenAI model(s) to include.
+        #[arg(short, long, value_delimiter = ',')]
+        model: Vec<String>,
+        /// Additional tokenizer.json path(s) to include.
+        #[arg(short, long, value_delimiter = ',')]
+        tokenizer: Vec<PathBuf>,
+        /// Output format.
+        #[arg(long, value_enum, default_value = "tsv")]
+        format: OutputFormat,
+        /// Input text (single inline argument).
+        #[arg(long)]
+        text: Option<String>,
+        /// Input files. If omitted, read from stdin.
+        files: Vec<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -147,6 +184,10 @@ impl Command {
             Command::Heatmap {
                 tokenizer, model, ..
             } => (tokenizer.clone(), model.clone()),
+            #[cfg(feature = "download")]
+            Command::Download { .. } | Command::Compare { .. } => {
+                unreachable!("tokenizer_source called on non-tokenization command")
+            }
         };
 
         if let Some(path) = tokenizer {

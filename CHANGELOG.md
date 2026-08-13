@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.1 — 2026-08-14
+
+### Added
+
+- `ta download` subcommand for downloading open-source tokenizer files.
+  - `ta download --recommend` downloads `qwen2_5`, `llama3`, and `deepseek_v3`.
+  - Custom IDs: `ta download <id>...`.
+  - Download strategy mirrors `x-bash/eget`:
+    1. Direct `github.com` with stall detection.
+    2. eget hosted mirror (`https://eget.ljh.sh/gh/...`).
+    3. User-configured `GHPROXY_ENDPOINT` mirror.
+  - Files are decompressed and cached under `~/.local/data/tokenizer-json/`.
+- `ta compare` subcommand for comparing token counts across models.
+  - `ta compare --recommend` compares against `gpt-4o`, `qwen2_5`, `llama3`, and `deepseek_v3`.
+  - Accepts stdin, files, or inline `--text`.
+  - Outputs TSV by default; `--format text` gives a table.
+
+### Changed
+
+- All release archives now use `xz` compression (Windows included).
+- Added Windows arm64 build.
+
 ## 0.1.0 — 2026-08-14
 
 First release of `token-actuary`.

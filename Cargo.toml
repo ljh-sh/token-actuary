@@ -1,6 +1,6 @@
 [package]
 name = "token-actuary"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["ljh-sh <lijunhao@x-cmd.com>"]
 edition = "2021"
 rust-version = "1.74"
@@ -45,16 +45,23 @@ tokenizers = { version = "0.21", default-features = false, features = ["unstable
 aho-corasick = "1"
 # CLI arg parser. Kept small via default-features=false.
 clap = { version = "4", features = ["derive", "std", "help"], default-features = false }
-# WebAssembly bindings (only pulled in with --features wasm).
 # OpenAI tiktoken backend (default). Pulls in regex + embedded BPE tables.
 # Disable for WASM builds: `--no-default-features --features wasm`.
 tiktoken-rs = { version = "0.12", optional = true }
 # WebAssembly bindings (only pulled in with --features wasm).
 wasm-bindgen = { version = "=0.2.100", optional = true }
+# HTTP client for optional tokenizer download. rustls avoids system OpenSSL.
+ureq = { version = "2", features = ["rustls"], optional = true }
+# Pure-Rust xz/LZMA decompression.
+lzma-rs = { version = "0.3", optional = true }
+# Cross-platform home/data directories.
+dirs = { version = "5", optional = true }
 
 [features]
-default = ["tiktoken"]
+default = ["tiktoken", "download"]
 tiktoken = ["dep:tiktoken-rs"]
+download = ["dep:ureq", "dep:lzma-rs", "dep:dirs"]
+# WASM build disables tiktoken-rs (regex crate) and network download.
 wasm = ["dep:wasm-bindgen"]
 
 # Release: small static-ish binary.

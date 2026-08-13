@@ -26,14 +26,14 @@ Download the latest release for your platform:
 
 ```bash
 # macOS (Apple Silicon + Intel universal)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-darwin-universal.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/ta-darwin-universal.tar.xz | tar xJ
 
 # Linux (x86_64)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-linux-x64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/ta-linux-x64.tar.xz | tar xJ
 
 # Windows (x86_64 / arm64)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-x64.tar.xz | tar xJ
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-arm64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/ta-windows-x64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/ta-windows-arm64.tar.xz | tar xJ
 # ta.exe is now available
 ```
 
@@ -136,6 +136,56 @@ ta decode 24912,2375
 
 ```bash
 echo "hello world" | ta heatmap
+```
+
+### Download open-source tokenizers
+
+`ta` can download Hugging Face-format tokenizers from the companion repo [`ljh-sh/tokenizer-json`](https://github.com/ljh-sh/tokenizer-json). Downloads are opt-in and cached locally under `~/.local/data/tokenizer-json/`.
+
+```bash
+# Download the recommended set (qwen2_5, llama3, deepseek_v3)
+ta download
+
+# Download specific IDs
+ta download claude qwen2_5
+
+# Force re-download
+ta download --recommend --force
+```
+
+Download strategy (mirrors `x-bash/eget`):
+
+1. Try `github.com` directly with stall detection.
+2. Fall back to the eget hosted mirror (`https://eget.ljh.sh/gh/...`).
+3. If `GHPROXY_ENDPOINT` is set, try that mirror too.
+
+### Compare token counts across models
+
+```bash
+# Compare stdin across recommended models
+echo "hello world" | ta compare
+
+# Compare a file
+ta compare prompt.txt
+
+# Compare inline text
+ta compare --text "hello world"
+
+# Include extra models or local tokenizers
+ta compare --model gpt-4 --tokenizer /path/to/custom.tokenizer.json prompt.txt
+
+# Table output
+ta compare --format text prompt.txt
+```
+
+Default TSV output:
+
+```tsv
+input	model	tokens
+stdin	gpt-4o	3
+stdin	qwen2_5.tokenizer	3
+stdin	llama3.tokenizer	3
+stdin	deepseek_v3.tokenizer	3
 ```
 
 ## Library
