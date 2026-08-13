@@ -1,12 +1,13 @@
 //! Optional tokenizer download.
 //!
 //! Downloads `tokenizer.json.xz` assets from the `ljh-sh/tokenizer-json`
-//! GitHub release `data`. The download strategy mirrors `x-bash/eget`:
+//! GitHub release `data`. The fallback strategy uses the same mirror endpoints
+//! as `x-bash/eget`, but `ta` does not depend on x-cmd or the `eget` CLI:
 //!
 //! 1. Try `github.com` directly with a speed-based stall detector.
 //! 2. If direct is slow or fails, fall back to the eget hosted mirror
 //!    (`https://eget.ljh.sh/gh/...`).
-//! 3. If `GHPROXY_ENDPOINT` is set, also try that mirror style.
+//! 3. If `GHPROXY_ENDPOINT` is set, also try that mirror.
 //!
 //! Decompressed files are stored under `~/.local/data/tokenizer-json/`.
 

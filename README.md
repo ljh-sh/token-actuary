@@ -153,11 +153,13 @@ ta download claude qwen2_5
 ta download --recommend --force
 ```
 
-Download strategy (mirrors `x-bash/eget`):
+Download strategy:
 
 1. Try `github.com` directly with stall detection.
 2. Fall back to the eget hosted mirror (`https://eget.ljh.sh/gh/...`).
 3. If `GHPROXY_ENDPOINT` is set, try that mirror too.
+
+`ta` does not depend on x-cmd or the `eget` CLI; the fallback uses the same mirror endpoints that `x-bash/eget` uses.
 
 ### Compare token counts across models
 
