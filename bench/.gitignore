@@ -1,0 +1,4 @@
+# Generated benchmark inputs
+*.txt
+*.xz
+*.gz
