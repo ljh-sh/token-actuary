@@ -1,4 +1,4 @@
-# Generated benchmark inputs
+# Generated benchmark inputs and downloaded tokenizer files
 *.txt
 *.xz
-*.gz
+*.tokenizer.json
