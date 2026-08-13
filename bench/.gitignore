@@ -2,3 +2,6 @@
 *.txt
 *.xz
 *.tokenizer.json
+
+# Temporary tiktoken-rs benchmark crate
+tiktoken-rs-bench/
