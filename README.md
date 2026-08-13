@@ -31,12 +31,13 @@ curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-darw
 # Linux (x86_64)
 curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-linux-x64.tar.xz | tar xJ
 
-# Windows (x86_64)
-curl -L -o ta-windows-x64.zip https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-x64.zip
-# unzip, then run ta.exe
+# Windows (x86_64 / arm64)
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-x64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.0/ta-windows-arm64.tar.xz | tar xJ
+# ta.exe is now available
 ```
 
-All archives are compressed with `xz` (Windows uses `zip` for native tooling compatibility).
+All archives are compressed with `xz`.
 
 ### Cargo
 

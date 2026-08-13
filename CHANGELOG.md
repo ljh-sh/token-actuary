@@ -30,7 +30,7 @@ On an Apple Silicon Mac, processing the full output of `x gtb show 1257` (~322k 
 
 - macOS: `ta-darwin-arm64.tar.xz`, `ta-darwin-x64.tar.xz`, `ta-darwin-universal.tar.xz`
 - Linux (musl): `ta-linux-arm64.tar.xz`, `ta-linux-x64.tar.xz`
-- Windows: `ta-windows-x64.zip`
+- Windows: `ta-windows-arm64.tar.xz`, `ta-windows-x64.tar.xz`
 - `checksums.txt` (SHA-256)
 
 ### License
