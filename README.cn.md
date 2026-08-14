@@ -34,7 +34,7 @@ cargo build --release   # 二进制在 target/release/token-actuary
 
 ## 用法
 
-所有命令都需要 `tokenizer.json`。可通过 `--tokenizer` 传入或设置环境变量 `TOKENIZER_JSON`：
+原生构建默认使用内置的 `gpt-4o` tokenizer，因此最简单的用法不需要额外文件。也可通过 `--tokenizer` 传入开源 tokenizer，或设置环境变量 `TOKENIZER_JSON`：
 
 ```bash
 export TOKENIZER_JSON=/path/to/tokenizer.json
@@ -143,7 +143,7 @@ println!("{} tokens", report.tokens_after);
 使用 `wasm-pack` 构建：
 
 ```bash
-wasm-pack build --target web --features wasm
+wasm-pack build --target web --no-default-features --features wasm
 ```
 
 `WasmActuary` 类向 JavaScript 暴露 `count`、`encode`、`decode` 和 `audit`。

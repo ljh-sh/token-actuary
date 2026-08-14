@@ -26,14 +26,14 @@ Download the latest release for your platform:
 
 ```bash
 # macOS (Apple Silicon + Intel universal)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/token-actuary-darwin-universal.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/latest/download/token-actuary-darwin-universal.tar.xz | tar xJ
 
 # Linux (x86_64)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/token-actuary-linux-x64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/latest/download/token-actuary-linux-x64.tar.xz | tar xJ
 
 # Windows (x86_64 / arm64)
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/token-actuary-windows-x64.tar.xz | tar xJ
-curl -L https://github.com/ljh-sh/token-actuary/releases/download/v0.1.1/token-actuary-windows-arm64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/latest/download/token-actuary-windows-x64.tar.xz | tar xJ
+curl -L https://github.com/ljh-sh/token-actuary/releases/latest/download/token-actuary-windows-arm64.tar.xz | tar xJ
 # token-actuary.exe is now available
 ```
 
@@ -67,7 +67,7 @@ Native builds default to the embedded `gpt-4o` tokenizer, so the simplest usage 
 
 ```bash
 echo "hello world" | token-actuary count
-# 2
+# 3
 ```
 
 You can also select a specific OpenAI model:
