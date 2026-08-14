@@ -1,6 +1,6 @@
 [package]
 name = "token-actuary"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["ljh-sh <lijunhao@x-cmd.com>"]
 edition = "2021"
 rust-version = "1.74"
@@ -30,7 +30,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [[bin]]
-name = "ta"
+name = "token-actuary"
 path = "src/main.rs"
 
 [dependencies]

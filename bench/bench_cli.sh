@@ -2,7 +2,7 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TA="${ROOT_DIR}/target/release/ta"
+TA="${ROOT_DIR}/target/release/token-actuary"
 TOKENIZER="${TOKENIZER_JSON:-${ROOT_DIR}/../tokenizer-json/data/gpt_4o.tokenizer.json}"
 
 build() {

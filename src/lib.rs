@@ -515,4 +515,35 @@ mod tests {
         assert!(report.truncated);
         assert_eq!(report.tokens_after, 3);
     }
+
+    #[test]
+    fn encode_decode_roundtrip() {
+        let actuary = test_actuary();
+        let text = "hello world";
+        let ids = actuary.encode(text, false).unwrap();
+        let decoded = actuary.decode(&ids, true).unwrap();
+        assert_eq!(decoded.trim(), text);
+    }
+
+    #[test]
+    fn density_is_chars_per_token() {
+        let actuary = test_actuary();
+        let density = actuary.density("hello world", false).unwrap();
+        // 11 chars / 2 tokens = 5.5
+        assert!(density > 5.4 && density < 5.6);
+    }
+
+    #[test]
+    fn audit_report_has_token_counts() {
+        let actuary = test_actuary();
+        let report = actuary
+            .audit(
+                "hello world",
+                &AuditOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(report.tokens_before, 2);
+        assert_eq!(report.tokens_after, 2);
+        assert!(!report.truncated);
+    }
 }

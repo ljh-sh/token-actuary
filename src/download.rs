@@ -2,12 +2,18 @@
 //!
 //! Downloads `tokenizer.json.xz` assets from the `ljh-sh/tokenizer-json`
 //! GitHub release `data`. The fallback strategy uses the same mirror endpoints
-//! as `x-bash/eget`, but `ta` does not depend on x-cmd or the `eget` CLI:
+//! as `x-bash/eget`, but `token-actuary` does not depend on x-cmd or the `eget` CLI:
 //!
+//! Default order:
 //! 1. Try `github.com` directly with a speed-based stall detector.
-//! 2. If direct is slow or fails, fall back to the eget hosted mirror
-//!    (`https://eget.ljh.sh/gh/...`).
-//! 3. If `GHPROXY_ENDPOINT` is set, also try that mirror.
+//! 2. Fall back to the eget hosted mirror (`https://eget.ljh.sh/gh/...`).
+//! 3. If `GHPROXY_ENDPOINT` is set, try that mirror.
+//!
+//! China-optimized order (`--china` or `TA_CHINA=1`):
+//! 1. `GHPROXY_ENDPOINT` mirror if set.
+//! 2. eget hosted mirror (`https://eget.ljh.sh/gh/...`).
+//! 3. Built-in China-accessible GitHub proxies.
+//! 4. `github.com` direct as last resort.
 //!
 //! Decompressed files are stored under `~/.local/data/tokenizer-json/`.
 
@@ -22,11 +28,19 @@ const TAG: &str = "data";
 
 const RECOMMENDED_IDS: &[&str] = &["qwen2_5", "llama3", "deepseek_v3"];
 
-/// Default download timeout for direct GitHub downloads.
+/// Built-in China-accessible GitHub proxy mirrors (ghproxy-style: prefix the
+/// full GitHub URL).
+const CHINA_PROXIES: &[&str] = &[
+    "https://ghfast.top",
+    "https://mirror.ghproxy.com",
+    "https://gh-proxy.com",
+];
+
+/// Default download timeout.
 const DOWNLOAD_TIMEOUT_SECONDS: u64 = 60;
 
-/// Minimum acceptable download speed in bytes/second. Below this the direct
-/// download is aborted and we fall back to mirrors.
+/// Minimum acceptable download speed in bytes/second. Below this the current
+/// attempt is aborted and we try the next source.
 const MIN_SPEED_BYTES_PER_SECOND: u64 = 1024;
 
 /// Returns the list of recommended tokenizer IDs.
@@ -50,6 +64,21 @@ pub fn data_dir() -> PathBuf {
         dirs::home_dir()
             .map(|h| h.join(".local/data/tokenizer-json"))
             .unwrap_or_else(|| PathBuf::from(".local/data/tokenizer-json"))
+    }
+}
+
+/// Download options.
+pub struct Options {
+    pub force: bool,
+    pub china: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            force: false,
+            china: std::env::var("TA_CHINA").is_ok_and(|v| !v.is_empty()),
+        }
     }
 }
 
@@ -82,22 +111,22 @@ impl std::fmt::Display for DownloadMethod {
 }
 
 /// Download one or more tokenizer IDs.
-pub fn download_ids(ids: &[String], force: bool) -> anyhow::Result<Vec<DownloadResult>> {
+pub fn download_ids(ids: &[String], opts: &Options) -> anyhow::Result<Vec<DownloadResult>> {
     let dir = data_dir();
     fs::create_dir_all(&dir)?;
 
     let mut results = Vec::with_capacity(ids.len());
     for id in ids {
-        let res = download_one(id, &dir, force)?;
+        let res = download_one(id, &dir, opts)?;
         results.push(res);
     }
     Ok(results)
 }
 
 /// Download recommended tokenizer IDs.
-pub fn download_recommended(force: bool) -> anyhow::Result<Vec<DownloadResult>> {
+pub fn download_recommended(opts: &Options) -> anyhow::Result<Vec<DownloadResult>> {
     let ids: Vec<String> = RECOMMENDED_IDS.iter().map(|s| s.to_string()).collect();
-    download_ids(&ids, force)
+    download_ids(&ids, opts)
 }
 
 fn asset_name(id: &str) -> String {
@@ -114,7 +143,7 @@ fn github_url(id: &str) -> String {
     )
 }
 
-fn eget_mirror_url(id: &str) -> String {
+fn eget_url(id: &str) -> String {
     let host = std::env::var("EGET_MIRROR_HOST").unwrap_or_else(|_| "eget.ljh.sh".to_string());
     let prefix = std::env::var("EGET_MIRROR_PATH").unwrap_or_else(|_| "gh".to_string());
     let prefix = prefix.trim_start_matches('/');
@@ -130,23 +159,57 @@ fn eget_mirror_url(id: &str) -> String {
     )
 }
 
-fn ghproxy_url(original: &str) -> Option<String> {
-    let endpoint = std::env::var("GHPROXY_ENDPOINT").ok()?;
-    let ep = endpoint.trim_end_matches('/');
-    if ep.is_empty() {
-        return None;
-    }
-    if ep.ends_with("/github.com") {
-        Some(original.replacen("https://github.com", ep, 1))
+fn ghproxy_url(proxy: &str, original: &str) -> String {
+    let proxy = proxy.trim_end_matches('/');
+    if proxy.ends_with("/github.com") {
+        original.replacen("https://github.com", proxy, 1)
     } else {
-        Some(format!("{}/{}", ep, original))
+        format!("{}/{}", proxy, original)
     }
 }
 
-fn download_one(id: &str, dir: &Path, force: bool) -> anyhow::Result<DownloadResult> {
+fn user_ghproxy_url(original: &str) -> Option<String> {
+    let endpoint = std::env::var("GHPROXY_ENDPOINT").ok()?;
+    let endpoint = endpoint.trim_end_matches('/');
+    if endpoint.is_empty() {
+        return None;
+    }
+    Some(ghproxy_url(endpoint, original))
+}
+
+fn download_urls(id: &str, china: bool) -> Vec<(DownloadMethod, String)> {
+    let github = github_url(id);
+    let eget = eget_url(id);
+    let user_proxy = user_ghproxy_url(&github);
+    let mut out = Vec::new();
+
+    if china {
+        // China-optimized: user proxy first, then eget, then built-in proxies,
+        // then GitHub direct as last resort.
+        if let Some(url) = user_proxy {
+            out.push((DownloadMethod::Ghproxy, url));
+        }
+        out.push((DownloadMethod::EgetMirror, eget));
+        for proxy in CHINA_PROXIES {
+            out.push((DownloadMethod::Ghproxy, ghproxy_url(proxy, &github)));
+        }
+        out.push((DownloadMethod::Github, github));
+    } else {
+        // Default: direct first, then eget mirror, then user ghproxy.
+        out.push((DownloadMethod::Github, github.clone()));
+        out.push((DownloadMethod::EgetMirror, eget));
+        if let Some(url) = user_proxy {
+            out.push((DownloadMethod::Ghproxy, url));
+        }
+    }
+
+    out
+}
+
+fn download_one(id: &str, dir: &Path, opts: &Options) -> anyhow::Result<DownloadResult> {
     let json_path = dir.join(format!("{}.tokenizer.json", id));
 
-    if !force && json_path.exists() {
+    if !opts.force && json_path.exists() {
         let meta = fs::metadata(&json_path)?;
         return Ok(DownloadResult {
             id: id.to_string(),
@@ -157,49 +220,28 @@ fn download_one(id: &str, dir: &Path, force: bool) -> anyhow::Result<DownloadRes
     }
 
     let xz_path = dir.join(asset_name(id));
+    let urls = download_urls(id, opts.china);
 
-    // 1. Direct GitHub.
-    let url = github_url(id);
-    if let Ok(bytes) = try_download(&url, &xz_path, DownloadMethod::Github) {
-        decompress(&xz_path, &json_path)?;
-        let _ = fs::remove_file(&xz_path);
-        return Ok(DownloadResult {
-            id: id.to_string(),
-            path: json_path,
-            method: DownloadMethod::Github,
-            bytes,
-        });
-    }
-
-    // 2. eget hosted mirror.
-    let mirror_url = eget_mirror_url(id);
-    if let Ok(bytes) = try_download(&mirror_url, &xz_path, DownloadMethod::EgetMirror) {
-        decompress(&xz_path, &json_path)?;
-        let _ = fs::remove_file(&xz_path);
-        return Ok(DownloadResult {
-            id: id.to_string(),
-            path: json_path,
-            method: DownloadMethod::EgetMirror,
-            bytes,
-        });
-    }
-
-    // 3. User-configured GHPROXY endpoint.
-    if let Some(proxy_url) = ghproxy_url(&url) {
-        if let Ok(bytes) = try_download(&proxy_url, &xz_path, DownloadMethod::Ghproxy) {
-            decompress(&xz_path, &json_path)?;
-            let _ = fs::remove_file(&xz_path);
-            return Ok(DownloadResult {
-                id: id.to_string(),
-                path: json_path,
-                method: DownloadMethod::Ghproxy,
-                bytes,
-            });
+    for (method, url) in urls {
+        match try_download(&url, &xz_path, method) {
+            Ok(bytes) => {
+                decompress(&xz_path, &json_path)?;
+                let _ = fs::remove_file(&xz_path);
+                return Ok(DownloadResult {
+                    id: id.to_string(),
+                    path: json_path,
+                    method,
+                    bytes,
+                });
+            }
+            Err(e) => {
+                eprintln!("{} failed: {}", method, e);
+            }
         }
     }
 
     Err(anyhow::anyhow!(
-        "failed to download {} from github.com, eget mirror, and ghproxy",
+        "failed to download {} from all available sources",
         id
     ))
 }
@@ -256,4 +298,69 @@ fn decompress(xz_path: &Path, json_path: &Path) -> anyhow::Result<()> {
     lzma_rs::xz_decompress(&mut std::io::BufReader::new(xz_file), &mut json_file)?;
     json_file.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_urls_start_with_github() {
+        let urls = download_urls("qwen2_5", false);
+        assert!(!urls.is_empty());
+        assert_eq!(urls[0].0, DownloadMethod::Github);
+        assert!(urls[0].1.starts_with("https://github.com/"));
+    }
+
+    #[test]
+    fn default_urls_include_eget_mirror() {
+        let urls = download_urls("qwen2_5", false);
+        let methods: Vec<_> = urls.iter().map(|u| u.0).collect();
+        assert!(methods.contains(&DownloadMethod::EgetMirror));
+    }
+
+    #[test]
+    fn china_urls_start_with_eget_mirror() {
+        let urls = download_urls("qwen2_5", true);
+        assert!(!urls.is_empty());
+        assert_eq!(urls[0].0, DownloadMethod::EgetMirror);
+        assert!(urls[0].1.starts_with("https://eget.ljh.sh/gh/"));
+        assert!(!urls[0].1.contains("https://github.com"));
+    }
+
+    #[test]
+    fn china_urls_end_with_github() {
+        let urls = download_urls("qwen2_5", true);
+        let last = urls.last().unwrap();
+        assert_eq!(last.0, DownloadMethod::Github);
+        assert!(last.1.starts_with("https://github.com/"));
+    }
+
+    #[test]
+    fn china_urls_include_ghproxy_mirrors() {
+        let urls = download_urls("qwen2_5", true);
+        let ghproxy_count = urls
+            .iter()
+            .filter(|u| u.0 == DownloadMethod::Ghproxy)
+            .count();
+        assert!(ghproxy_count >= 1, "expected at least one ghproxy mirror");
+    }
+
+    #[test]
+    fn ghproxy_url_prefixes_github() {
+        let original = "https://github.com/ljh-sh/tokenizer-json/releases/download/data/qwen2_5.tokenizer.json.xz";
+        assert_eq!(
+            ghproxy_url("https://ghfast.top", original),
+            "https://ghfast.top/https://github.com/ljh-sh/tokenizer-json/releases/download/data/qwen2_5.tokenizer.json.xz"
+        );
+    }
+
+    #[test]
+    fn ghproxy_url_replaces_github_host() {
+        let original = "https://github.com/ljh-sh/tokenizer-json/releases/download/data/qwen2_5.tokenizer.json.xz";
+        assert_eq!(
+            ghproxy_url("https://mirror.example.com/github.com", original),
+            "https://mirror.example.com/github.com/ljh-sh/tokenizer-json/releases/download/data/qwen2_5.tokenizer.json.xz"
+        );
+    }
 }

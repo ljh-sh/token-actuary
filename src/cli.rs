@@ -1,4 +1,4 @@
-//! CLI argument definitions for the `ta` binary.
+//! CLI argument definitions for the `token-actuary` binary.
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ pub const DEFAULT_MODEL: &str = "gpt-4o";
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "ta",
+    name = "token-actuary",
     about = "Privacy-first LLM input firewall & cost actuary",
     version,
     arg_required_else_help = true
@@ -46,7 +46,7 @@ pub enum Command {
         #[arg(short, long)]
         model: Option<String>,
         /// Maximum tokens to keep.
-        #[arg(short, long)]
+        #[arg(long)]
         max_tokens: Option<usize>,
         /// Comma-separated sensitive patterns to redact.
         #[arg(long, value_delimiter = ',')]
@@ -74,6 +74,9 @@ pub enum Command {
         /// Add special tokens.
         #[arg(long)]
         special: bool,
+        /// Output separator between token ids.
+        #[arg(short, long, default_value = ",")]
+        sep: String,
         /// Input text. If omitted, read from stdin.
         text: Option<String>,
     },
@@ -85,9 +88,11 @@ pub enum Command {
         /// OpenAI model name to use the embedded tiktoken backend.
         #[arg(short, long)]
         model: Option<String>,
-        /// Comma-separated token ids.
-        #[arg(value_delimiter = ',')]
-        ids: Vec<u32>,
+        /// Separator used in the input token id list.
+        #[arg(short, long, default_value = ",")]
+        sep: String,
+        /// Token ids as arguments, or read from stdin if omitted.
+        ids: Vec<String>,
     },
     /// Print a per-token heatmap for terminal debugging.
     Heatmap {
@@ -115,6 +120,10 @@ pub enum Command {
         /// Force re-download even if the file already exists.
         #[arg(short, long)]
         force: bool,
+        /// Optimize download order for networks in mainland China.
+        /// Also enabled via TA_CHINA=1.
+        #[arg(long)]
+        china: bool,
     },
     /// Compare token counts across multiple tokenizers.
     #[cfg(feature = "download")]

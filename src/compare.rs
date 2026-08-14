@@ -38,7 +38,7 @@ impl CompareTokenizer {
     }
 }
 
-/// Resolve the default set of tokenizers for `ta compare --recommend`.
+/// Resolve the default set of tokenizers for `token-actuary compare --recommend`.
 pub fn recommended_tokenizers() -> Vec<CompareTokenizer> {
     let mut out = vec![CompareTokenizer::Model("gpt-4o".to_string())];
 

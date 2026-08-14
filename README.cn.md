@@ -5,7 +5,7 @@
 > 隐私优先的大模型输入防火墙与算力成本精算师。  
 > 本地化 Token 计数、脱敏、截断与越狱 Token 检测 —— 无网络、无数据泄露。
 
-`token-actuary`（二进制名：`ta`）是一个小巧、自包含的 Rust 工具，在提示词离开机器之前完成审计。它加载 Hugging Face 的 `tokenizer.json`，统计 Token 数、脱敏敏感信息、在 Token 边界安全截断，并标记可能提示注入或越狱的控制 Token。
+`token-actuary`（二进制名：`token-actuary`）是一个小巧、自包含的 Rust 工具，在提示词离开机器之前完成审计。它加载 Hugging Face 的 `tokenizer.json`，统计 Token 数、脱敏敏感信息、在 Token 边界安全截断，并标记可能提示注入或越狱的控制 Token。
 
 ## 为什么做 token-actuary？
 
@@ -29,7 +29,7 @@ cargo install token-actuary
 ```bash
 git clone https://github.com/ljh-sh/token-actuary
 cd token-actuary
-cargo build --release   # 二进制在 target/release/ta
+cargo build --release   # 二进制在 target/release/token-actuary
 ```
 
 ## 用法
@@ -40,17 +40,55 @@ cargo build --release   # 二进制在 target/release/ta
 export TOKENIZER_JSON=/path/to/tokenizer.json
 ```
 
+### TL;DR 速查
+
+```bash
+# 统计 Token（默认使用内置 gpt-4o）
+echo "hello world" | token-actuary count
+
+# 用开源 tokenizer 统计中文
+echo "你好世界" | token-actuary count --tokenizer qwen2_5.tokenizer.json
+
+# 审计：脱敏敏感信息、截断到预算、输出 JSON 给 Agent
+cat prompt.txt | token-actuary audit \
+  --redact password,secret,token \
+  --replace [REDACTED],[REDACTED],[REDACTED] \
+  --max-tokens 4096 --format json
+
+# 对比多个模型的 Token 数
+echo "hello world" | token-actuary compare
+
+# 下载推荐的开源 tokenizer
+token-actuary download --recommend
+
+# 大陆网络优先走镜像下载
+TA_CHINA=1 token-actuary download --recommend
+
+# 编码 / 解码（默认分隔符为 `,`）
+echo "hello world" | token-actuary encode
+token-actuary decode 24912,2375
+
+# 回环：编码后再解码
+echo "hello world" | token-actuary encode | token-actuary decode
+
+# 使用自定义分隔符
+echo "hello world" | token-actuary encode -s " | " | token-actuary decode -s " | "
+
+# 打印每个 token 的偏移热图
+echo "hello world" | token-actuary heatmap
+```
+
 ### 统计 Token
 
 ```bash
-echo "hello world" | ta count
+echo "hello world" | token-actuary count
 # 2
 ```
 
 ### 审计（脱敏 + 截断 + 检测）
 
 ```bash
-echo "my secret password is here" | ta audit --redact secret,password --replace [REDACTED],[SECRET] --max-tokens 10
+echo "my secret password is here" | token-actuary audit --redact secret,password --replace [REDACTED],[SECRET] --max-tokens 10
 ```
 
 输出：
@@ -68,23 +106,23 @@ my [REDACTED] [SECRET] is here
 JSON 模式便于 Agent 解析：
 
 ```bash
-cat prompt.txt | ta audit --max-tokens 2048 --format json
+cat prompt.txt | token-actuary audit --max-tokens 2048 --format json
 ```
 
 ### 编码 / 解码
 
 ```bash
-echo "hello world" | ta encode
-# 15496,995
+echo "hello world" | token-actuary encode
+# 24912,2375,198
 
-ta decode 15496,995
+token-actuary decode 24912,2375,198
 # hello world
 ```
 
 ### 热力图
 
 ```bash
-echo "hello world" | ta heatmap
+echo "hello world" | token-actuary heatmap
 ```
 
 ## 库用法

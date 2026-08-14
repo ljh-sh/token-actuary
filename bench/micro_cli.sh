@@ -2,13 +2,13 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TA="${ROOT_DIR}/target/release/ta"
+TA="${ROOT_DIR}/target/release/token-actuary"
 TOKENIZER="${TOKENIZER_JSON:-${ROOT_DIR}/../tokenizer-json/data/gpt_4o.tokenizer.json}"
 TEXT="x gtb show         1257"
 RUNS=100
 
 if [ ! -f "$TA" ]; then
-  echo "Building ta..."
+  echo "Building token-actuary..."
   cargo build --release --quiet
 fi
 if [ ! -f "$TOKENIZER" ]; then
@@ -37,7 +37,7 @@ total_us=$((end - start))
 avg_us=$(python3 -c "print(f'{($total_us / $RUNS):.2f}')")
 ops=$(python3 -c "print(f'{$RUNS / ($total_us / 1e6):.0f}')")
 
-echo "ta CLI (subprocess per call)"
+echo "token-actuary CLI (subprocess per call)"
 echo "  text:          '$TEXT'"
 echo "  single call:   ${cold_us} µs"
 echo "  hot loop:      ${avg_us} µs/op  (${ops} ops/s)"

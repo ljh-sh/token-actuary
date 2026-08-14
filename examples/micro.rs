@@ -23,7 +23,7 @@ fn main() {
     let hot_total = t0.elapsed().as_micros() as f64;
     let hot_avg = hot_total / RUNS as f64;
 
-    println!("ta Rust library");
+    println!("token-actuary Rust library");
     println!("  text:          {:?}", TEXT);
     println!("  tokens:        {}", ids.len());
     println!("  token IDs:     {:?}", ids);

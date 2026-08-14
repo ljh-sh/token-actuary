@@ -1,4 +1,4 @@
-//! Native CLI entry point for token-actuary (`ta`).
+//! Native CLI entry point for the `token-actuary` binary.
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -22,14 +22,19 @@ fn main() -> Result<()> {
             recommend,
             ids,
             force,
+            china,
         } => {
             println!("downloading to {}", download::data_dir().display());
+            let opts = download::Options {
+                force,
+                china: china || download::Options::default().china,
+            };
             let results = if ids.is_empty() && recommend {
-                download::download_recommended(force)?
+                download::download_recommended(&opts)?
             } else if ids.is_empty() {
                 anyhow::bail!("no tokenizer IDs specified; use --recommend or pass IDs");
             } else {
-                download::download_ids(&ids, force)?
+                download::download_ids(&ids, &opts)?
             };
             for r in results {
                 println!("{}\t{}\t{}\t{}", r.id, r.method, r.bytes, r.path.display());
@@ -168,12 +173,13 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Command::Encode { special, text, .. } => {
+        Command::Encode { special, sep, text, .. } => {
             let input = read_input(text)?;
             let ids = actuary.encode(&input, special)?;
-            println!("{}", ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+            println!("{}", ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(&sep));
         }
-        Command::Decode { ids, .. } => {
+        Command::Decode { sep, ids, .. } => {
+            let ids = parse_ids(&ids, &sep)?;
             let text = actuary.decode(&ids, true)?;
             println!("{}", text);
         }
@@ -203,4 +209,74 @@ fn read_input(text: Option<String>) -> Result<String> {
         .read_to_string(&mut buf)
         .context("failed to read stdin")?;
     Ok(buf)
+}
+
+/// Parse token ids from arguments or stdin using the given separator.
+fn parse_ids(args: &[String], sep: &str) -> Result<Vec<u32>> {
+    let raw = if args.is_empty() {
+        let mut buf = String::new();
+        io::stdin()
+            .read_to_string(&mut buf)
+            .context("failed to read stdin")?;
+        buf
+    } else {
+        args.join(sep)
+    };
+
+    let mut ids = Vec::new();
+    for part in raw.split(sep) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        ids.push(part.parse::<u32>().context(format!("invalid token id: {}", part))?);
+    }
+    Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ids_from_args_comma_sep() {
+        let ids = parse_ids(&["1,2,3".to_string()], ",").unwrap();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_ids_from_args_custom_sep() {
+        let ids = parse_ids(&["10 | 20 | 30".to_string()], " | ").unwrap();
+        assert_eq!(ids, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn parse_ids_from_multiple_args() {
+        let ids = parse_ids(&["1".to_string(), "2".to_string(), "3".to_string()], ",").unwrap();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_ids_trims_whitespace() {
+        let ids = parse_ids(&["  1 , 2 , 3  ".to_string()], ",").unwrap();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_ids_skips_empty_parts() {
+        let ids = parse_ids(&["1,,2, ,3".to_string()], ",").unwrap();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn parse_ids_rejects_invalid() {
+        let err = parse_ids(&["1,foo,3".to_string()], ",").unwrap_err();
+        assert!(err.to_string().contains("invalid token id"));
+    }
+
+    #[test]
+    fn parse_ids_rejects_overflow() {
+        let err = parse_ids(&["4294967296".to_string()], ",").unwrap_err();
+        assert!(err.to_string().contains("invalid token id"));
+    }
 }
